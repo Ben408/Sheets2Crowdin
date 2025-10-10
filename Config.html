@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body {
+      font-family: 'Google Sans', Arial, sans-serif;
+      padding: 20px;
+      background: #f8f9fa;
+    }
+    .container {
+      background: white;
+      padding: 25px;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    }
+    h2 {
+      color: #1a73e8;
+      margin-top: 0;
+      font-size: 20px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: #333;
+      font-size: 14px;
+    }
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    input:focus {
+      outline: none;
+      border-color: #1a73e8;
+    }
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 25px;
+    }
+    button {
+      flex: 1;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-primary {
+      background: #1a73e8;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #1557b0;
+    }
+    .btn-test {
+      background: #34a853;
+      color: white;
+    }
+    .btn-test:hover {
+      background: #2d8e47;
+    }
+    .btn-secondary {
+      background: #f1f3f4;
+      color: #333;
+    }
+    .btn-secondary:hover {
+      background: #e8eaed;
+    }
+    .help-text {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+    .status {
+      margin-top: 15px;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      display: none;
+    }
+    .status.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+      display: block;
+    }
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+      display: block;
+    }
+    .info-box {
+      background: #e8f4fd;
+      border-left: 4px solid #1a73e8;
+      padding: 12px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      border-radius: 4px;
+    }
+    .info-box strong {
+      color: #1557b0;
+    }
+    a {
+      color: #1a73e8;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>⚙️ Crowdin Enterprise Configuration</h2>
+    
+    <div class="info-box">
+      <strong>Organization:</strong> strava.crowdin.com<br>
+      <strong>Setup:</strong> You'll need a Personal Access Token and Project ID from Crowdin.
+    </div>
+    
+    <div class="form-group">
+      <label for="token">Personal Access Token *</label>
+      <input type="password" id="token" placeholder="Enter your Crowdin Personal Access Token">
+      <div class="help-text">
+        Get your token from: 
+        <a href="https://strava.crowdin.com/settings#api-key" target="_blank">
+          strava.crowdin.com/settings#api-key
+        </a>
+      </div>
+    </div>
+    
+    <div class="form-group">
+      <label for="projectId">Project ID *</label>
+      <input type="text" id="projectId" placeholder="Enter your Crowdin Project ID (numeric)">
+      <div class="help-text">
+        Find this in your project settings URL or project settings page
+      </div>
+    </div>
+    
+    <div class="button-group">
+      <button class="btn-primary" onclick="saveConfiguration()">💾 Save</button>
+      <button class="btn-test" onclick="testConnection()">🔍 Test Connection</button>
+      <button class="btn-secondary" onclick="google.script.host.close()">Cancel</button>
+    </div>
+    
+    <div id="status" class="status"></div>
+  </div>
+
+  <script>
+    // Load existing configuration on page load
+    window.onload = function() {
+      google.script.run.withSuccessHandler(function(config) {
+        document.getElementById('token').value = config.token;
+        document.getElementById('projectId').value = config.projectId;
+      }).getConfig();
+    };
+    
+    function saveConfiguration() {
+      const token = document.getElementById('token').value.trim();
+      const projectId = document.getElementById('projectId').value.trim();
+      const status = document.getElementById('status');
+      
+      if (!token || !projectId) {
+        showStatus('Please fill in all required fields', 'error');
+        return;
+      }
+      
+      // Validate project ID is numeric
+      if (isNaN(projectId)) {
+        showStatus('Project ID must be a number', 'error');
+        return;
+      }
+      
+      status.style.display = 'none';
+      
+      google.script.run
+        .withSuccessHandler(function(result) {
+          showStatus(result, 'success');
+          setTimeout(function() {
+            google.script.host.close();
+          }, 1500);
+        })
+        .withFailureHandler(function(error) {
+          showStatus('Error: ' + error.message, 'error');
+        })
+        .saveConfig(token, projectId);
+    }
+    
+    function testConnection() {
+      const status = document.getElementById('status');
+      showStatus('Testing connection...', 'success');
+      
+      google.script.run
+        .withSuccessHandler(function() {
+          // The testConnection function handles its own UI alerts
+          status.style.display = 'none';
+        })
+        .withFailureHandler(function(error) {
+          showStatus('Test failed: ' + error.message, 'error');
+        })
+        .testConnection();
+    }
+    
+    function showStatus(message, type) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = 'status ' + type;
+    }
+  </script>
+</body>
+</html>
+
