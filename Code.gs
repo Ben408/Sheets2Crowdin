@@ -350,11 +350,13 @@ function pushSelectedCells() {
             const actualRow = rowStart + row;
             const actualCol = colStart + col;
             const columnLetter = columnToLetter(actualCol);
-            
+            const maxvalue = findCharMaxValue(actualCol)
+          
             selectedCells.push({
               text: cellValue.toString().trim(),
               identifier: sheet.getName() + '_R' + actualRow + 'C' + columnLetter,
-              context: 'Sheet: ' + sheet.getName() + ', Cell: ' + columnLetter + actualRow
+              context: 'Sheet: ' + sheet.getName() + ', Cell: ' + columnLetter + actualRow,
+              max_char: maxvalue
             });
           }
         }
@@ -824,14 +826,17 @@ function extractStringsFromSheet(sheet) {
         // Extract strings from this row
         var strings = [];
         for (var col = 3; col < maxCols; col++) { // Columns D-Z (index 3-25)
-          if (rowData[col] && rowData[col].toString().trim() !== '') {
+          console.log(rowData[col].toString())
+          console.log("entrada: " + rowData[col].toString() + " es o no es numero?: " + isNaN(rowData[col].toString()))
+          if (rowData[col] && rowData[col].toString().trim() !== '' && isNaN(rowData[col].toString())) {
             var columnLetter = columnToLetter(col + 1);
-            var stringId = sheet.getName() + '_' + columnLetter;
+            const maxvalue = findCharMaxValue(col + 1)
             
             strings.push({
               text: rowData[col].toString().trim(),
               identifier: sheet.getName() + '_R' + row + 'C' + columnLetter,
-              context: 'Sheet: ' + sheet.getName() + ', Cell: ' + columnLetter + row
+              context: 'Sheet: ' + sheet.getName() + ', Cell: ' + columnLetter + row,
+              max_char : maxvalue
             });
             
             Logger.log('Added string ' + columnLetter + ': ' + rowData[col].toString().substring(0, 50) + '...');
@@ -967,14 +972,26 @@ function uploadSingleString(string, config) {
     const baseUrl = `https://${CONFIG_KEYS.CROWDIN_ORGANIZATION}.crowdin.com/api/v2`;
     const projectId = config.projectId;
     const branchId = getBranchId(config);
-    
+
     const url = `${baseUrl}/projects/${projectId}/strings`;
-    const payload = {
+
+    let payload = null
+    if (string.max_char == 0){
+    payload = {
       text: string.text,
       identifier: string.identifier,
       context: string.context,
       branchId: branchId
+    }}
+    else{
+          payload = {
+      text: string.text,
+      identifier: string.identifier,
+      context: string.context,
+      branchId: branchId,
+      maxLength: string.max_char
     };
+    }
     
     Logger.log(`Making API request to: ${url}`);
     
@@ -1982,4 +1999,49 @@ function testSpreadsheetAccess() {
   }
 }
 
-
+/**
+ * Finds the first cell containing "char max" in a column and returns the numeric value that precedes it
+ * @param {number} columnNumber - The column number (1 = A, 2 = B, etc.)
+ * @param {string} sheetName - Optional sheet name. If not provided, uses active sheet
+ * @return {number|null} - The numeric value that precedes "char max", or null if not found
+ */
+function findCharMaxValue(columnNumber, sheetName = null) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = sheetName ? ss.getSheetByName(sheetName) : ss.getActiveSheet();
+    
+    if (!sheet) {
+      throw new Error(`Sheet "${sheetName}" not found`);
+    }
+    
+    // Get all values in the specified column
+    const lastRow = sheet.getLastRow();
+    const columnRange = sheet.getRange(1, columnNumber, lastRow, 1);
+    const values = columnRange.getValues();
+    
+    // Search from top to bottom for the first cell containing "char max"
+    for (let i = 0; i < values.length; i++) {
+      const cellValue = values[i][0];
+      
+      if (cellValue && typeof cellValue === 'string') {
+        // Check if the cell contains "char max" (case insensitive)
+        if (cellValue.toLowerCase().includes('char max')) {
+          // Extract numeric value that precedes "char max"
+          const match = cellValue.match(/(\d+)\s*char\s*max/i);
+          if (match) {
+            const numericValue = parseInt(match[1], 10);
+            Logger.log(`Found "char max" in column ${columnNumber}, row ${i + 1}: "${cellValue}" - extracted value: ${numericValue}`);
+            return numericValue;
+          }
+        }
+      }
+    }
+    
+    Logger.log(`No cell containing "char max" found in column ${columnNumber}`);
+    return 0;
+    
+  } catch (error) {
+    Logger.log(`Error in findCharMaxValue: ${error.message}`);
+    throw error;
+  }
+}
