@@ -1204,7 +1204,22 @@ function pullSelectedStrings() {
       return;
     }
     
-    // Get all selected cells
+    // First, find the English (US) row to establish the source strings
+    const data = sheet.getDataRange().getValues();
+    let englishRowIndex = -1;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i][0] && data[i][0].toString().includes('English (US)')) {
+        englishRowIndex = i;
+        break;
+      }
+    }
+    
+    if (englishRowIndex === -1) {
+      ui.alert('No English Row', 'No "English (US)" row found in the sheet.', ui.ButtonSet.OK);
+      return;
+    }
+    
+    // Get all selected cells and map them to their English source
     const selectedCells = [];
     ranges.forEach(range => {
       const values = range.getValues();
@@ -1218,11 +1233,24 @@ function pullSelectedStrings() {
           const actualCol = colStart + col;
           const columnLetter = columnToLetter(actualCol);
           
+          // Skip English row - we don't need to pull translations for source strings
+          if (actualRow === englishRowIndex + 1) {
+            continue;
+          }
+          
+          // Find the corresponding English source string in the same column
+          const englishSource = data[englishRowIndex][actualCol - 1];
+          if (!englishSource || englishSource.toString().trim() === '') {
+            continue; // Skip if no English source text
+          }
+          
           selectedCells.push({
             row: actualRow,
             col: actualCol,
             text: cellValue.toString().trim(),
-            identifier: sheet.getName() + '_R' + actualRow + 'C' + columnLetter,
+            columnLetter: columnLetter,
+            englishSource: englishSource.toString().trim(),
+            identifier: sheet.getName() + '_R' + (englishRowIndex + 1) + 'C' + columnLetter,
             context: 'Sheet: ' + sheet.getName() + ', Cell: ' + columnLetter + actualRow
           });
         }
@@ -1230,13 +1258,13 @@ function pullSelectedStrings() {
     });
     
     if (selectedCells.length === 0) {
-      ui.alert('No Content', 'Selected cells are empty. Please select cells with text content.', ui.ButtonSet.OK);
+      ui.alert('No Content', 'No translation cells found in selection (English row excluded).', ui.ButtonSet.OK);
       return;
     }
     
     ui.alert(
       'Ready to Pull Selected Strings', 
-      'Found ' + selectedCells.length + ' cells\n\n' +
+      'Found ' + selectedCells.length + ' translation cells\n\n' +
       'This will pull translations for these specific strings from Crowdin.\n\n' +
       'Continue?',
       ui.ButtonSet.YES_NO
@@ -1246,40 +1274,36 @@ function pullSelectedStrings() {
     let processed = 0;
     let errors = 0;
     let errorMessages = [];
-    
-    let id = null
 
     for (const cell of selectedCells) {
       try {
-        // For each selected cell, try to find and pull its translation
-        // First try to determine the correct language based on the row
-        const row = cell.row;
-        const sheet = ss.getActiveSheet();
-        const languageLabel = sheet.getRange(row, 1).getValue(); // Get language from column A
-        const localeCode = sheet.getRange(row, 2).getValue(); // Get locale from column B
+        // Get the language information for this cell
+        const languageLabel = data[cell.row - 1][0]; // Get language from column A (0-indexed)
+        const localeCode = data[cell.row - 1][1]; // Get locale from column B (0-indexed)
         
-        Logger.log('Cell row: ' + row + ', Language: ' + languageLabel + ', Locale: ' + localeCode);
+        Logger.log('Processing cell row: ' + cell.row + ', Language: ' + languageLabel + ', Locale: ' + localeCode);
+        Logger.log('English source: "' + cell.englishSource + '", Identifier: ' + cell.identifier);
         
         // Map to correct Crowdin language code
         const crowdinLocale = LANGUAGE_MAP[languageLabel.toString().trim()] || localeCode;
         
-        if (localeCode == "en-US"){
-          
-          id = cell.identifier;
+        if (!crowdinLocale) {
+          errors++;
+          errorMessages.push('Unknown language: ' + languageLabel + ' for cell ' + cell.columnLetter + cell.row);
           continue;
         }
         
-        Logger.log('Looking for translation: ' + id + ' in language ' + crowdinLocale);
+        Logger.log('Looking for translation: ' + cell.identifier + ' in language ' + crowdinLocale);
         
-        const translation = getTranslationFromCrowdin(id, crowdinLocale , config);
+        const translation = getTranslationFromCrowdin(cell.identifier, crowdinLocale, config);
         if (translation) {
           // Write translation to the cell
           sheet.getRange(cell.row, cell.col).setValue(translation);
           processed++;
-          Logger.log('✅ Pulled: ' + cell.identifier + ' = "' + translation + '"');
+          Logger.log('✅ Pulled: ' + cell.identifier + ' (' + crowdinLocale + ') = "' + translation + '"');
         } else {
           errors++;
-          errorMessages.push('No translation found for: ' + cell.identifier);
+          errorMessages.push('No translation found for: ' + cell.identifier + ' (' + crowdinLocale + ')');
         }
         
         Utilities.sleep(100); // Small delay between strings
